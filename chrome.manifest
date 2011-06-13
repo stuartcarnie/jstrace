@@ -1,0 +1,3 @@
+content jstrace chrome/content/jstrace/ xpcnativewrappers=no
+
+overlay chrome://firebug/content/firebugOverlay.xul chrome://jstrace/content/jstrace.xul

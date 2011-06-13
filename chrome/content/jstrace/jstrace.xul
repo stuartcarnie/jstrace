@@ -1,0 +1,59 @@
+<?xml version="1.0"?>
+<overlay xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
+	<script src="chrome://jstrace/content/jstrace.js" type="application/x-javascript"/>
+
+	<commandset id="mainCommandSet">
+		<command id="cmd_jstToggleTrace"
+			oncommand="Firebug.jstraceModule.onToggleTrace(FirebugContext)" />
+	</commandset>
+	
+	<toolbar id="fbToolbar" align="center">
+		<hbox id="fbToolbarInner" class="innerToolbar" insertbefore="fbDetachButton" flex="1" align="center">
+			
+			<hbox id="fbJsTraceButtons" collapsed="true" class="noTabStop">
+				<toolbarseparator class="fbPanelSpecificButtonsSeparator"/>
+				<toolbarbutton id="fbjstToggleTracing" label="Trace" class="toolbar-text-button fbInternational"
+					tooltiptext="Toggle tracing on / off" type="checkbox" command="cmd_jstToggleTrace"/>
+				<!--
+				<toolbarbutton id="fbNetPersist" label="firebug.console.Persist"
+					class="toolbar-text-button fbInternational"
+					tooltiptext="firebug.console.Do Not Clear On Reload"
+					command="cmd_togglePersistNet"/>
+				<hbox id="fbNetButtonsFilter" class="noTabStop">
+					<toolbarseparator/>
+					<toolbarbutton id="fbNetFilter-all" label="firebug.All" type="radio"
+						class="toolbar-text-button fbInternational"
+						group="firebugNetFilter" checked="true"
+						oncommand="Firebug.NetMonitor.onToggleFilter(Firebug.currentContext, 'all')"/>
+					<toolbarbutton id="fbNetFilter-html" label="HTML" type="radio"
+						class="toolbar-text-button"
+						group="firebugNetFilter"
+						oncommand="Firebug.NetMonitor.onToggleFilter(Firebug.currentContext, 'html')"/>
+					<toolbarbutton id="fbNetFilter-css" label="CSS" type="radio"
+						class="toolbar-text-button"
+						group="firebugNetFilter"
+						oncommand="Firebug.NetMonitor.onToggleFilter(Firebug.currentContext, 'css')"/>
+					<toolbarbutton id="fbNetFilter-js" label="JS" type="radio"
+						class="toolbar-text-button"
+						group="firebugNetFilter"
+						oncommand="Firebug.NetMonitor.onToggleFilter(Firebug.currentContext, 'js')"/>
+					<toolbarbutton id="fbNetFilter-xhr" label="XHR" type="radio"
+						tooltiptext="XMLHttpRequest"
+						class="toolbar-text-button" group="firebugNetFilter"
+						oncommand="Firebug.NetMonitor.onToggleFilter(Firebug.currentContext, 'xhr')"/>
+					<toolbarbutton id="fbNetFilter-image" label="firebug.Images" type="radio"
+						class="toolbar-text-button fbInternational"
+						group="firebugNetFilter"
+						oncommand="Firebug.NetMonitor.onToggleFilter(Firebug.currentContext, 'image')"/>
+					<toolbarbutton id="fbNetFilter-flash" label="firebug.Flash" type="radio"
+						class="toolbar-text-button fbInternational" group="firebugNetFilter"
+						oncommand="Firebug.NetMonitor.onToggleFilter(Firebug.currentContext, 'flash')"/>
+					<toolbarbutton id="fbNetFilter-media" label="net.filter.Media" type="radio"
+						class="toolbar-text-button fbInternational" group="firebugNetFilter"
+						oncommand="Firebug.NetMonitor.onToggleFilter(Firebug.currentContext, 'media')"/>
+				</hbox>
+				-->
+			</hbox>
+		</hbox>
+	</toolbar>
+</overlay>
