@@ -53,6 +53,12 @@
 						oncommand="Firebug.NetMonitor.onToggleFilter(Firebug.currentContext, 'media')"/>
 				</hbox>
 				-->
+				<hbox align="right" flex="100%">
+					<spacer flex="1"/>
+					<textbox align="right" id="jstFilterBox" type="fbSearchBox"
+						onkeyup="Firebug.jstraceModule.onSearchKeyUp(FirebugContext, event)"/>
+					<spacer flex="1"/>
+				</hbox>
 			</hbox>
 		</hbox>
 	</toolbar>

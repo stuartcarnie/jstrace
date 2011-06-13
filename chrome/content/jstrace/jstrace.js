@@ -4,6 +4,7 @@ FBL.ns(function() { with (FBL) {
 	var FBTrace = traceConsoleService.getTracer("extensions.firebug");
 	
 	var traceButton = $('fbjstToggleTracing');
+	var searchBox = $('jstFilterBox');
 	
 	var panelName = "jstracePanel";
 	
@@ -98,7 +99,7 @@ FBL.ns(function() { with (FBL) {
 		this.fileName = aFrame.script.fileName;
 		this.lineNumber = aFrame.script.baseLineNumber;
 		this.script = aFrame.script;
-		this.callCount = 0;		
+		this.callCount = 0;
 		this.calls = {};
 	}
 	
@@ -192,21 +193,45 @@ FBL.ns(function() { with (FBL) {
 					fbs.traceAll(null, traceHandlers);
 				} catch (err) {
 					if (FBTrace.DBG_JSTRACE)
-					    FBTrace.sysout("jstrace.jstraceModule.onObserverChange; error for fbs.traceAll", err);
+					    FBTrace.sysout("jstrace.jstraceModule.onToggleTrace; error for fbs.traceAll", err);
 				}
 			} else {
+				if (FBTrace.DBG_JSTRACE)
+				    FBTrace.sysout("jstrace.jstraceModule.onToggleTrace; off", this.traceListener);
 				fbs.untraceAll(traceHandlers);
 				this.logTraceReport(context, this.traceListener);
 				traceHandlers.remove(this.traceListener);
-				delete this.traceListener;
 			}
+		},
+		
+		onSearchKeyUp: function(context, event) {
+			// FBTrace.sysout("jstrace.jstraceModule.onSearchKeyUp", this);
+			this.logTraceReport(context, this.traceListener);
+		},
+		
+		matchFunctionInfo: function(fi) {
+			var searchText = searchBox.value;
+			if (searchText == undefined || searchText == '')
+				return true;
+			
+			var calls = fi.calls;
+			for(var key in calls) {
+				var val = calls[key];
+				var frames = val.frame.frames;
+				for(var i = 0; i <frames.length; i++) {
+					if (frames[i].href.indexOf(searchText) >= 0) {
+						return true;
+					}
+				}
+			}
+			return false;
 		},
 		
 		logTraceReport: function logTraceReport(context, traceListener) {
 			try {
 				var panel = context.getPanel(panelName);
 				var parentNode = panel.panelNode;
-				var rootTemplateElement = Firebug.jstraceModule.TraceTable.tabelTag.replace(
+				var rootTemplateElement = Firebug.jstraceModule.TraceTable.tableTag.replace(
 					{}, parentNode, Firebug.jstraceModule.TraceTable);
 				
 				var targetNode = rootTemplateElement.ownerDocument.getElementById("jstraceMessageTable").firstChild;
@@ -215,6 +240,9 @@ FBL.ns(function() { with (FBL) {
 					var profContext = traceListener.profileData[key];
 					for(var callKey in profContext.functionCalls) {
 						var functionInfo = profContext.functionCalls[callKey];
+						if (!this.matchFunctionInfo(functionInfo)) {
+							continue;
+						}
 						var message = new Firebug.jstraceModule.FunctionCallLog(context, functionInfo);
 						Firebug.jstraceModule.TraceTable.dump(message, targetNode);
 					}
@@ -290,10 +318,26 @@ FBL.ns(function() { with (FBL) {
 	Firebug.registerPanel(jstracePanel);
 
 	Firebug.jstraceModule.TraceTable = domplate({
-		tabelTag:
+		tableTag:
 			DIV({"class": "profileSizer", "tabindex": "-1" },
 				TABLE({"class": "messageTable", id: "jstraceMessageTable", cellspacing: 0, cellpadding: 0, width: "100%"},
 					TBODY()
+				)
+			),
+		
+		contextTag:
+			TR({"class":"messageRow",
+				_repObject: "$message",
+				onclick: "$onClickContextRow"},
+				TD({"class": "messageNameCol messageCol"},
+					DIV({"class":"messageNameLabel messageLabel"},
+						"$message|getContextMessageIndex"
+					)
+				),
+				TD({"class": "messageBodyCol messageCol"},
+					DIV({"class":"messageLabel"},
+						"$message|getContextMessageLabel"
+					)
 				)
 			),
 		
@@ -303,7 +347,8 @@ FBL.ns(function() { with (FBL) {
 				onclick: "$onClickRow"},
 				TD({"class": "messageNameCol messageCol"},
 					DIV({"class": "messageNameLabel messageLabel"},
-						"$message|getMessageIndex")
+						"$message|getMessageIndex"
+					)
 				),
 				TD({"class": "messageBodyCol messageCol"},
 					DIV({"class": "messageLabel", title: "$message|getMessageTitle"},
@@ -346,6 +391,17 @@ FBL.ns(function() { with (FBL) {
 					)
 				)
 			),
+			
+		// Context nodes
+		onClickContextRow: function(event) {
+			if (isLeftClick(event)) {
+				var row = getAncestorByClass(event.target, "messageRow");
+				if (row) {
+					this.toggleContextRow(row);
+					cancelEvent(event);
+				}
+			}
+		},
 			
 		// Body of the message.
 		onClickRow: function(event) {
