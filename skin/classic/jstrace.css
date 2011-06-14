@@ -1,0 +1,21 @@
+.treeRow.hasChildren .treeLabel {
+	background-image: url(chrome://firebug/skin/win/twistyClosed.png);
+	background-repeat: no-repeat;
+	background-position: 2px 2px;
+}
+
+.treeRow.hasChildren.opened .treeLabel {
+	background-image: url(chrome://firebug/skin/win/twistyOpen.png);
+}
+
+.treeRow .treeLabel {
+	padding-left: 18px;
+	padding-right: 10px;
+	white-space: nowrap;
+}
+
+.treeRow.hasChildren .treeLabel:hover {
+	color: blue;
+	cursor: pointer;
+	text-decoration: underline;
+}

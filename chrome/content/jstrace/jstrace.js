@@ -45,6 +45,26 @@ FBL.ns(function() { with (FBL) {
 		}
 	}
 	
+	Object.prototype.clone = function() {
+		// NOTE: doesn't handle cycles
+		var newInstance = new this.constructor();
+		for(var i in this) {
+			if (!this.hasOwnProperty(i))
+				continue;
+
+			var item = this[i];
+			if (item instanceof Array) {
+				var ary = newInstance[i] = [];
+				for (var j=0; j < item.length; j++) {
+					ary.push(item[j].clone());
+				}
+			} else {
+				newInstance[i] = typeof(item) == 'object' ? item.clone() : item;
+			}
+		}
+		return newInstance;
+	}
+	
 	function framesToString(frame)
 	{
 	    var str = "";
@@ -89,7 +109,6 @@ FBL.ns(function() { with (FBL) {
 	function ProfileCall(aFrame) {
 		this.frame = aFrame;
 		this.functionName = aFrame.functionName;
-		//this.frameAsString = framesToString(aFrame);
 		this.script = aFrame.script;
 		this.callCount = 0;
 	}
@@ -106,12 +125,53 @@ FBL.ns(function() { with (FBL) {
 	function ProfileContext(executionContext) {
 		this.executionContext = executionContext;
 		this.functionCalls = {};
+		this.calls = {};
 	}
 	
 	function TraceListener(context) {
 		this.context = context;
 		this.callCount = 0;
 		this.profileData = {};
+	}
+	
+	function CallNode(aFrame, aContext) {
+		if (aContext)
+			this.functionName = getFunctionName(aFrame.script, aContext);
+		this.fileName = aFrame.script.fileName;
+		this.children = {};
+		this.frame = aFrame;
+	}
+	
+	CallNode.prototype.toString = function toString() {
+		return this.functionName + " | " + this.frame.script.fileName + "(" + this.frame.script.baseLineNumber + ")";
+	}
+	
+	CallNode.prototype.clone = function clone() {
+		var res = new CallNode(this.frame);
+		res.functionName = this.functionName;
+		for(var k in this.children) {
+			var v = this.children[k];
+			this.children[k] = v.clone();
+		}
+		return res;
+	}
+	
+	// Works with CallNode, performs depth-first search
+	// Trims branches that do not pass match function
+	function trimNodes(node, match) {
+		var children = node.children;
+		var isMatch = false;
+		if (children) {
+			for (var k in children) {
+				var i = children[k];
+				if (!walk(i, match)) {
+					delete children[k];
+				} else {
+					isMatch = true;
+				}
+			}
+		}
+		return match(node) || isMatch;
 	}
 	
 	TraceListener.prototype = {
@@ -131,22 +191,13 @@ FBL.ns(function() { with (FBL) {
 					profContext = new ProfileContext(frame.executionContext);
 					this.profileData[execContextHash] = profContext;
 				}
-
-				var scriptHash = frame.script.tag;
-				var profFunction = profContext.functionCalls[scriptHash];
-				if (!profFunction) {
-					profFunction = new ProfileFunction(frame);
-					profContext.functionCalls[scriptHash] = profFunction;
-				}
-				profFunction.callCount++;
 				
 				var frameHash = framesToHash(frame);
-				var profCall = profFunction.calls[frameHash];
+				var profCall = profContext.calls[frameHash];
 				if (!profCall) {
 					profCall = new ProfileCall(getCorrectedStackTrace(frame, this.context));
-					profFunction.calls[frameHash] = profCall;
+					profContext.calls[frameHash] = profCall;
 				}
-				
 				profCall.callCount++;
 				
 			} catch (err) {
@@ -159,6 +210,56 @@ FBL.ns(function() { with (FBL) {
 		hook: function(frame) {
 			
 		},
+		
+		generateTraceData: function(context) {
+			if (FBTrace.DBG_JSTRACE)
+				FBTrace.sysout("jstrace.TraceListener.generateTraceData");
+				
+			try {
+				var root = {
+					"name": "Root Node",
+					children: {},
+					toString: function toString() {
+						return this.name;
+					}
+				};
+				for(var keyExec in this.profileData) {
+					var exec = this.profileData[keyExec];
+				
+					var contextNode = { 
+						executionContext: exec.executionContext,
+						keyExec: keyExec,
+						children: {},
+						toString: function toString() {
+							return "Context " + this.keyExec;
+						}
+					}
+					root.children[keyExec] = contextNode;
+				
+					for(var keyCall in exec.calls) {
+						var call = exec.calls[keyCall];
+						var frames = call.frame.frames;
+						var children = contextNode.children;
+						for (var i = frames.length - 1; i >= 0; i--) {
+							var frame = frames[i];
+							var child = children[frame.script.tag];
+							if (!child) {
+								child = new CallNode(frame, context);
+								children[frame.script.tag] = child;
+							}
+							children = child.children;
+						};
+					}
+				}
+				
+				if (FBTrace.DBG_JSTRACE)
+					FBTrace.sysout("jstrace.TraceListener.generateTraceData; generated", root);
+				return root;
+			} catch (err) {
+				if (FBTrace.DBG_JSTRACE)
+				    FBTrace.sysout("error jstrace.TraceListener.generateTraceData", err);
+			}
+		}
 	};
 	
 	Firebug.jstraceModule = extend(Firebug.ActivableModule, {
@@ -199,14 +300,29 @@ FBL.ns(function() { with (FBL) {
 				if (FBTrace.DBG_JSTRACE)
 				    FBTrace.sysout("jstrace.jstraceModule.onToggleTrace; off", this.traceListener);
 				fbs.untraceAll(traceHandlers);
-				this.logTraceReport(context, this.traceListener);
 				traceHandlers.remove(this.traceListener);
+
+				this.traceData = this.traceListener.generateTraceData(context);
+				this.logTraceReport(context, this.traceData);
 			}
 		},
 		
 		onSearchKeyUp: function(context, event) {
 			// FBTrace.sysout("jstrace.jstraceModule.onSearchKeyUp", this);
-			this.logTraceReport(context, this.traceListener);
+			var filtered = this.filterData(this.traceData);
+			this.logTraceReport(context, filtered);
+		},
+		
+		filterData: function(traceData) {
+			var searchText = searchBox.value;
+			if (searchText == undefined || searchText == '')
+				return traceData;
+				
+			var filtered = traceData.clone();
+			trimNodes(filtered, function match(node) {
+				return node.toString().indexOf(searchText) >= 0;
+			});
+			return filtered;
 		},
 		
 		matchFunctionInfo: function(fi) {
@@ -227,10 +343,16 @@ FBL.ns(function() { with (FBL) {
 			return false;
 		},
 		
-		logTraceReport: function logTraceReport(context, traceListener) {
+		logTraceReport: function logTraceReport(context, traceData) {
 			try {
 				var panel = context.getPanel(panelName);
 				var parentNode = panel.panelNode;
+				var rootTemplateElement = tree.tag.replace({object: traceData}, parentNode, tree);
+				
+				
+				// old
+				/*
+				
 				var rootTemplateElement = Firebug.jstraceModule.TraceTable.tableTag.replace(
 					{}, parentNode, Firebug.jstraceModule.TraceTable);
 				
@@ -247,13 +369,14 @@ FBL.ns(function() { with (FBL) {
 						Firebug.jstraceModule.TraceTable.dump(message, targetNode);
 					}
 				}
+				*/
 			} catch (err) {
 				if (FBTrace.DBG_JSTRACE)
 				    FBTrace.sysout("error jstrace.jstraceModule.logTraceReport; ", err);
 			}
 			
 			if (FBTrace.DBG_JSTRACE) {
-				FBTrace.sysout("jstrace.jstraceModule.logTraceReport:table", targetNode);
+				FBTrace.sysout("jstrace.jstraceModule.logTraceReport:table", rootTemplateElement);
 			}
 		},
 		
@@ -280,6 +403,7 @@ FBL.ns(function() { with (FBL) {
 			
 			addStyleSheet(doc, createStyleSheet(doc, "chrome://firebug/skin/panelbase.css"));
 			addStyleSheet(doc, createStyleSheet(doc, "chrome://firebug/skin/traceConsole.css"));
+			addStyleSheet(doc, createStyleSheet(doc, "chrome://jstrace/skin/classic/jstrace.css"))
 		},
 		
 		show: function(state) {
@@ -316,7 +440,100 @@ FBL.ns(function() { with (FBL) {
 	});
 	
 	Firebug.registerPanel(jstracePanel);
+	
+	var tree = domplate({
+		tag:
+			TABLE({onclick: "$onClick"},
+				TBODY(
+					FOR("member", "$object|memberIterator",
+						TAG("$row", {member: "$member"})
+					)
+				)
+			),
 
+		row:
+			TR({class: "treeRow", $hasChildren: "$member.hasChildren",
+				_repObject: "$member", level: "$member.level"},
+				TD({style: "padding-left: $member.indent\\px"},
+					DIV({class: "treeLabel"},
+						"$member.name"
+					)
+				),
+				TD(
+					DIV("$member.label")
+				)
+			),
+
+		loop:
+			FOR("member", "$members",
+				TAG("$row", {member: "$member"})),
+
+		memberIterator: function(object) {
+			if (FBTrace.DBG_JSTRACE)
+				FBTrace.sysout("tree.memberIterator", object);
+			return this.getMembers(object);
+		},
+
+		onClick: function(event) {
+			if (!isLeftClick(event))
+				return;
+
+			var row = getAncestorByClass(event.target, "treeRow");
+			var label = getAncestorByClass(event.target, "treeLabel");
+			if (label && hasClass(row, "hasChildren"))
+				this.toggleRow(row);
+		},
+
+		toggleRow: function(row) {
+			var level = parseInt(row.getAttribute("level"));
+
+			if (hasClass(row, "opened")) {
+				removeClass(row, "opened");
+
+				var tbody = row.parentNode;
+				for (var firstRow = row.nextSibling; firstRow; firstRow = row.nextSibling) {
+					if (parseInt(firstRow.getAttribute("level")) <= level)
+						break;
+					tbody.removeChild(firstRow);
+				}
+			} else {
+				setClass(row, "opened");
+
+				var repObject = row.repObject;
+				if (repObject) {
+					var members = this.getMembers(repObject.value, level+1);
+					if (members)
+						this.loop.insertRows({members: members}, row);
+				}
+			}
+		},
+
+		getMembers: function(object, level) {
+			object = object.children;
+		
+			if (!level)
+				level = 0;
+
+			var members = [];
+			for (var p in object) 
+				members.push(this.createMember(p, object[p], level));
+
+			return members;
+		},
+
+		createMember: function(name, value, level) {
+			var hasChildren = (typeof(value.children) == "object");
+			return {
+				name: value.toString(),
+				label: hasChildren ? "" : value,
+				value: value,
+				level: level,
+				indent: level*16,
+				hasChildren: hasChildren
+			};
+		}
+	});
+	
 	Firebug.jstraceModule.TraceTable = domplate({
 		tableTag:
 			DIV({"class": "profileSizer", "tabindex": "-1" },

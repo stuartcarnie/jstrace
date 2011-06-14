@@ -1,3 +1,5 @@
 content jstrace chrome/content/jstrace/ xpcnativewrappers=no
 
+skin	jstrace	classic/1.0	skin/classic
+
 overlay chrome://firebug/content/firebugOverlay.xul chrome://jstrace/content/jstrace.xul
