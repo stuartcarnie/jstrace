@@ -45,26 +45,29 @@ FBL.ns(function() { with (FBL) {
 		}
 	}
 	
-	Object.prototype.clone = function() {
+	function cloneObject(obj) {
+		if (!obj) return obj;
+		if (obj.clone) return obj.clone();
+		
 		// NOTE: doesn't handle cycles
-		var newInstance = new this.constructor();
-		for(var i in this) {
-			if (!this.hasOwnProperty(i))
+		var newInstance = new obj.constructor();
+		for(var i in obj) {
+			if (!obj.hasOwnProperty(i))
 				continue;
 
-			var item = this[i];
+			var item = obj[i];
 			if (item instanceof Array) {
 				var ary = newInstance[i] = [];
 				for (var j=0; j < item.length; j++) {
-					ary.push(item[j].clone());
+					ary.push(cloneObject(item[j]));
 				}
 			} else {
-				newInstance[i] = typeof(item) == 'object' ? item.clone() : item;
+				newInstance[i] = typeof(item) == 'object' ? cloneObject(item) : item;
 			}
 		}
 		return newInstance;
 	}
-	
+
 	function framesToString(frame)
 	{
 	    var str = "";
@@ -146,14 +149,26 @@ FBL.ns(function() { with (FBL) {
 		return this.functionName + " | " + this.frame.script.fileName + "(" + this.frame.script.baseLineNumber + ")";
 	}
 	
-	CallNode.prototype.clone = function clone() {
+	CallNode.prototype.clone = function() {
 		var res = new CallNode(this.frame);
 		res.functionName = this.functionName;
-		for(var k in this.children) {
-			var v = this.children[k];
-			this.children[k] = v.clone();
-		}
+		res.children = cloneObject(this.children);
 		return res;
+	}
+	
+	function ContextNode(aExecutionContext) {
+		this.executionContext = aExecutionContext;
+		this.children = {};
+	}
+	
+	ContextNode.prototype.toString = function() {
+		return "Context " + this.executionContext.tag;
+	};
+	
+	ContextNode.prototype.clone = function() {
+		var obj = new ContextNode(this.executionContext);
+		obj.children = cloneObject(this.children);
+		return obj;
 	}
 	
 	// Works with CallNode, performs depth-first search
@@ -164,7 +179,7 @@ FBL.ns(function() { with (FBL) {
 		if (children) {
 			for (var k in children) {
 				var i = children[k];
-				if (!walk(i, match)) {
+				if (!trimNodes(i, match)) {
 					delete children[k];
 				} else {
 					isMatch = true;
@@ -219,21 +234,14 @@ FBL.ns(function() { with (FBL) {
 				var root = {
 					"name": "Root Node",
 					children: {},
-					toString: function toString() {
+					toString: function() {
 						return this.name;
 					}
 				};
 				for(var keyExec in this.profileData) {
 					var exec = this.profileData[keyExec];
-				
-					var contextNode = { 
-						executionContext: exec.executionContext,
-						keyExec: keyExec,
-						children: {},
-						toString: function toString() {
-							return "Context " + this.keyExec;
-						}
-					}
+					
+					var contextNode = new ContextNode(exec.executionContext);
 					root.children[keyExec] = contextNode;
 				
 					for(var keyCall in exec.calls) {
@@ -256,7 +264,7 @@ FBL.ns(function() { with (FBL) {
 					FBTrace.sysout("jstrace.TraceListener.generateTraceData; generated", root);
 				return root;
 			} catch (err) {
-				if (FBTrace.DBG_JSTRACE)
+				if (FBTrace.DBG_JSTRACE || FBTrace.DBG_ERROR)
 				    FBTrace.sysout("error jstrace.TraceListener.generateTraceData", err);
 			}
 		}
@@ -308,9 +316,13 @@ FBL.ns(function() { with (FBL) {
 		},
 		
 		onSearchKeyUp: function(context, event) {
-			// FBTrace.sysout("jstrace.jstraceModule.onSearchKeyUp", this);
-			var filtered = this.filterData(this.traceData);
-			this.logTraceReport(context, filtered);
+			try {
+				var filtered = this.filterData(this.traceData);
+				this.logTraceReport(context, filtered);
+			} catch(err) {
+				if (FBTrace.DBG_JSTRACE || FBTrace.DBG_ERROR)
+				    FBTrace.sysout("error jstrace.jstraceModule.onSearchKeyUp", err);
+			}
 		},
 		
 		filterData: function(traceData) {
@@ -318,7 +330,7 @@ FBL.ns(function() { with (FBL) {
 			if (searchText == undefined || searchText == '')
 				return traceData;
 				
-			var filtered = traceData.clone();
+			var filtered = cloneObject(traceData);
 			trimNodes(filtered, function match(node) {
 				return node.toString().indexOf(searchText) >= 0;
 			});
@@ -371,7 +383,7 @@ FBL.ns(function() { with (FBL) {
 				}
 				*/
 			} catch (err) {
-				if (FBTrace.DBG_JSTRACE)
+				if (FBTrace.DBG_JSTRACE || FBTrace.DBG_ERROR)
 				    FBTrace.sysout("error jstrace.jstraceModule.logTraceReport; ", err);
 			}
 			
@@ -466,7 +478,8 @@ FBL.ns(function() { with (FBL) {
 
 		loop:
 			FOR("member", "$members",
-				TAG("$row", {member: "$member"})),
+				TAG("$row", {member: "$member"})
+			),
 
 		memberIterator: function(object) {
 			if (FBTrace.DBG_JSTRACE)
@@ -534,6 +547,7 @@ FBL.ns(function() { with (FBL) {
 		}
 	});
 	
+	/*
 	Firebug.jstraceModule.TraceTable = domplate({
 		tableTag:
 			DIV({"class": "profileSizer", "tabindex": "-1" },
@@ -800,4 +814,5 @@ FBL.ns(function() { with (FBL) {
 			return getFunctionName(this.callingFrame.script, this.functionCallLog.context);
 		},
 	};
+	*/
 }});
