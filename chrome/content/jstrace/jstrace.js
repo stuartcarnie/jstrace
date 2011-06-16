@@ -112,14 +112,8 @@ FBL.ns(function() { with (FBL) {
 	function framesToHash(frame) {
 		var hash = 7919;	// prime
 		while (frame) {
-			if (!frame.script) {
-		        ERROR("framesToHash bad frame "+typeof(frame), frame);
-		        return "<bad frame>";
-		    }
-		
 			hash ^= frame.script.tag;
 			hash ^= frame.line;
-			
 			frame=frame.callingFrame;
 		}
 		return hash;
@@ -133,11 +127,8 @@ FBL.ns(function() { with (FBL) {
 		return hash;
 	}
 	
-	function ProfileCall(aFrame) {
-		this.frame = aFrame;
-		this.script = this.frame.script;
-		this.functionName = aFrame.functionName;
-		this.callCount = 0;
+	function ProfileCall(aStackTrace) {
+		this.stackTrace = aStackTrace;
 	}
 	
 	function ProfileContext(executionContext) {
@@ -205,17 +196,17 @@ FBL.ns(function() { with (FBL) {
 		this.profileData = {};
 	}
 	
-	function getStackTraceFast(frame, context) {
-		try
-	    {
-			var trace = new this.StackTrace();
-			for (; frame && frame.isValid; frame = frame.callingFrame) {
-				
-			}
-		} catch (err) {
-			if (FBTrace.DBG_JSTRACE)
-			    FBTrace.sysout("error jstrace.getFastStackTrace", err);
+	function FastStackTrace(aFrame) {
+		this.frames = [];
+		for (; aFrame; aFrame = aFrame.callingFrame) {
+			this.frames.push(new FastStackFrame(aFrame));
 		}
+	}
+	
+	function FastStackFrame(aFrame) {
+		this.functionName = aFrame.functionName;
+		this.line = aFrame.line;
+		this.script = aFrame.script;
 	}
 	
 	TraceListener.prototype = {
@@ -235,15 +226,17 @@ FBL.ns(function() { with (FBL) {
 					this.profileData[execContextHash] = profContext;
 				}
 				
+				// framesToHash is slow, likely because accessing the properties of frame are marshalled to js engine
 				var frameHash = framesToHash(frame);
 				var profCall = profContext.calls[frameHash];
 				if (!profCall) {
-					var correctedFrame = getCorrectedStackTrace(frame, this.context);
-					profCall = new ProfileCall(correctedFrame);
+					//var correctedStackTrace = getCorrectedStackTrace(frame, this.context);
+					// need to create an alternate representation, as the frame is invalid after this call
+					// per: http://xulrunner-1.9.sourcearchive.com/documentation/1.9.0.14plus-pbuild2plus-pnobinonly/interfacejsdIStackFrame.html
+					var safeStackTrace = new FastStackTrace(frame);
+					profCall = new ProfileCall(safeStackTrace);
 					profContext.calls[frameHash] = profCall;
 				}
-				profCall.callCount++;
-				
 			} catch (err) {
 				if (FBTrace.DBG_JSTRACE && this.callCount++ < 100)
 				    FBTrace.sysout("error jstrace.TraceListener.onFunctionCall", err);
@@ -302,7 +295,7 @@ FBL.ns(function() { with (FBL) {
 					for(var keyCall in exec.calls) {
 						// enumerate all the calls within the current execution context
 						var call = exec.calls[keyCall];
-						var frames = call.frame.frames;
+						var frames = call.stackTrace.frames;
 						var children = contextNode.children;
 						var parent = contextNode;
 						var lastFrame = frames.length - 1;
