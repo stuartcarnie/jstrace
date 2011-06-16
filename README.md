@@ -18,7 +18,7 @@ jstrace is written by Stuart Carnie and is MIT licensed
 Naturally you would expect some slowdown, however be prepared for a significant amount (up to 100x).
 The heavy lifting occurs in `TraceListener.processFunctionCall`, which is called back for every function call.
 I've isolated the poor performance to converting the jsd stack frame into a safe frame that will remain valid
-after tracing completes.  As per [jsdIStackFrame](this) documentation, the stack frame object is only valid for the duration
+after tracing completes.  As per [this][jsdIStackFrame] documentation, the stack frame object is only valid for the duration
 of the call, and therefore we must do this during profiling.  Simply calling `frame.line` or `frame.script.tag` 
 causes a huge performance hit, suggesting these native objects perform poorly when marshaling data or remain 
 uninitialized until the first property is accessed.
