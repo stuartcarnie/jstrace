@@ -13,6 +13,10 @@ FBL.ns(function() { with (FBL) {
 		
 		callCount: 0,
 		
+		tracing: false,
+		
+		handler: null,
+		
 		// Stage for activation when 'hook' is called
 		add: function(aHook) {
 			if (!aHook)
@@ -30,18 +34,51 @@ FBL.ns(function() { with (FBL) {
 		},
 		
 		onFunctionCall: function(context, frame, hookFrameCount, calling) {
-			traceHandlers.dispatch(frame, calling);
+			traceHandlers.handler.processFunctionCall(frame, calling);
 		},
 		
-		dispatch: function(frame, calling) {
+		processFunctionCall: function(frame, calling) {
 			for (var i = 0; i < this.hooks.length; i++) {
 				var aHook = this.hooks[i];
-				aHook.onFunctionCall.apply(aHook, [frame, calling]);
+				aHook.processFunctionCall(frame, calling);
 			}
 		},
-		
+				
 		hook: function(frame) {
 			
+		},
+		
+		start: function() {
+			if (this.tracing) return;
+			
+			if (this.hooks.length > 1) {
+				this.handler = this;
+			} else if (this.hooks.length == 1) {
+				if (FBTrace.DBG_JSTRACE)
+				    FBTrace.sysout("jstrace.traceHandlers.start; using optimized");
+				this.handler = this.hooks[0];
+			}
+
+			for (var i=0; i < this.hooks.length; i++) {
+				var hook = this.hooks[i];
+				hook.start();
+			}
+			
+			fbs.traceAll(null, this);
+			this.tracing = true;
+		},
+		
+		stop: function(aContext) {
+			if (this.tracing) {
+				fbs.untraceAll(this);
+				
+				for (var i=0; i < this.hooks.length; i++) {
+					var hook = this.hooks[i];
+					hook.stop(aContext);
+				}
+				
+				this.tracing = false;
+			}
 		}
 	}
 	
@@ -109,10 +146,17 @@ FBL.ns(function() { with (FBL) {
 		return hash;
 	}
 	
+	function frameHash(frame) {
+		var hash = 7919;	// prime
+		hash ^= frame.script.tag;
+		hash ^= frame.line;
+		return hash;
+	}
+	
 	function ProfileCall(aFrame) {
 		this.frame = aFrame;
+		this.script = this.frame.script;
 		this.functionName = aFrame.functionName;
-		this.script = aFrame.script;
 		this.callCount = 0;
 	}
 	
@@ -122,27 +166,27 @@ FBL.ns(function() { with (FBL) {
 		this.calls = {};
 	}
 	
-	function CallNode(aParent, aFrame, aContext) {
-		if (aContext)
-			this.functionName = getFunctionName(aFrame.script, aContext);
+	function FunctionCallNode(aParent, aFileName, aFunctionName, aBaseLineNumber) {
 		this.parent = aParent;
-		this.fileName = aFrame.script.fileName;
+		this.fileName = aFileName
+		this.functionName = aFunctionName;
+		this.baseLineNumber = aBaseLineNumber;
 		this.children = {};
-		this.frame = aFrame;
+		this.callers = {};
 	}
 	
-	CallNode.prototype.toString = function toString() {
-		return this.functionName + " | " + this.frame.script.fileName + "(" + this.frame.script.baseLineNumber + ")";
+	FunctionCallNode.prototype.toString = function toString() {
+		return this.functionName + " | " + this.fileName + " (" + this.baseLineNumber + ")";
 	}
 	
-	CallNode.prototype.clone = function() {
-		var res = new CallNode(this.parent, this.frame);
-		res.functionName = this.functionName;
+	FunctionCallNode.prototype.clone = function() {
+		var res = new FunctionCallNode(this.parent, this.fileName, this.functionName, this.baseLineNumber);
 		res.children = cloneObject(this.children);
+		res.callers = cloneObject(this.callers);
 		return res;
 	}
 	
-	// Works with CallNode, performs depth-first search
+	// Works with FunctionCallNode, performs depth-first search
 	// Trims branches that do not pass match function
 	function trimNodes(node, match) {
 		var children = node.children;
@@ -182,14 +226,26 @@ FBL.ns(function() { with (FBL) {
 		this.profileData = {};
 	}
 	
+	function getStackTraceFast(frame, context) {
+		try
+	    {
+			var trace = new this.StackTrace();
+			for (; frame && frame.isValid; frame = frame.callingFrame) {
+				
+			}
+		} catch (err) {
+			if (FBTrace.DBG_JSTRACE)
+			    FBTrace.sysout("error jstrace.getFastStackTrace", err);
+		}
+	}
+	
 	TraceListener.prototype = {
-		onFunctionCall: function(frame, aCalling) {
+		processFunctionCall: function(frame, aCalling) {
 			try {
 				if (!aCalling) {
 					return;
 				}
 				
-				this.callCount++;
 				var execContextHash = frame.executionContext.tag;
 				var profContext = this.profileData[execContextHash];
 				if (!profContext) {
@@ -203,7 +259,8 @@ FBL.ns(function() { with (FBL) {
 				var frameHash = framesToHash(frame);
 				var profCall = profContext.calls[frameHash];
 				if (!profCall) {
-					profCall = new ProfileCall(getCorrectedStackTrace(frame, this.context));
+					var correctedFrame = getCorrectedStackTrace(frame, this.context);
+					profCall = new ProfileCall(correctedFrame);
 					profContext.calls[frameHash] = profCall;
 				}
 				profCall.callCount++;
@@ -217,6 +274,16 @@ FBL.ns(function() { with (FBL) {
 		
 		hook: function(frame) {
 			
+		},
+		
+		start: function() {
+			if (FBTrace.DBG_JSTRACE)
+				FBTrace.sysout("jstrace.TraceListener.start");
+		},
+		
+		stop: function(aContext) {
+			if (FBTrace.DBG_JSTRACE)
+				FBTrace.sysout("jstrace.TraceListener.stop; processing profileData", this);			
 		},
 		
 		generateTraceData: function(context) {
@@ -242,12 +309,24 @@ FBL.ns(function() { with (FBL) {
 						var frames = call.frame.frames;
 						var children = contextNode.children;
 						var parent = contextNode;
-						for (var i = frames.length - 1; i >= 0; i--) {
+						var lastFrame = frames.length - 1;
+						for (var i = lastFrame; i >= 0; i--) {
 							var frame = frames[i];
 							var child = children[frame.script.tag];
 							if (!child) {
-								child = new CallNode(parent, frame, context);
+								child = new FunctionCallNode(parent, frame.script.fileName, getFunctionName(frame.script, context), frame.script.baseLineNumber);
 								children[frame.script.tag] = child;
+							}
+							if (i < lastFrame) {
+								var callingFrame = frames[i+1];
+								var hash = frameHash(callingFrame);
+								var caller = child.callers[hash];
+								if (!caller) {
+									child.callers[hash] = {
+										fileName: callingFrame.script.fileName,
+										line: callingFrame.line
+									};
+								}
 							}
 							children = child.children;
 							parent = child;
@@ -294,7 +373,7 @@ FBL.ns(function() { with (FBL) {
 				traceHandlers.add(this.traceListener);
 				
 				try {
-					fbs.traceAll(null, traceHandlers);
+					traceHandlers.start();
 				} catch (err) {
 					if (FBTrace.DBG_JSTRACE)
 					    FBTrace.sysout("jstrace.jstraceModule.onToggleTrace; error for fbs.traceAll", err);
@@ -302,7 +381,7 @@ FBL.ns(function() { with (FBL) {
 			} else {
 				if (FBTrace.DBG_JSTRACE)
 				    FBTrace.sysout("jstrace.jstraceModule.onToggleTrace; off", this.traceListener);
-				fbs.untraceAll(traceHandlers);
+				traceHandlers.stop(context);
 				traceHandlers.remove(this.traceListener);
 
 				this.traceData = this.traceListener.generateTraceData(context);
@@ -437,11 +516,24 @@ FBL.ns(function() { with (FBL) {
 				DIV({class: "treeRowInfoBody"}, 
 					TABLE({class: "callTable"},
 						TBODY(
-							FOR("node", "$member|frameNodeIterator",
+							TR(
+								TD({ class: "stackLabel"}, "Function:")
+							),
+							TR(
+								TD(
+									A({"class": "stackFrameLink", onclick: "$onClickCallInfo", lineNumber: "$member.value.baseLineNumber"},
+										"$member.value.fileName"
+									)
+								)
+							),
+							TR(
+								TD({ class: "stackLabel"}, "Callers locations:")
+							),
+							FOR("frame", "$member|callersIterator",
 								TR(
 									TD(
-										A({"class": "stackFrameLink", onclick: "$onClickCallInfo", lineNumber: "$node.frame.line"},
-											"$node.fileName"
+										A({"class": "stackFrameLink", onclick: "$onClickCallInfo", lineNumber: "$frame.line"},
+											"$frame.fileName"
 										)
 									)
 								)
@@ -469,19 +561,16 @@ FBL.ns(function() { with (FBL) {
 				event.target.innerHTML, null, null, lineNumber, false);
 		},
 		
-		frameNodeIterator: function(member) {
+		callersIterator: function(member) {
 			if (FBTrace.DBG_JSTRACE) {
 				FBTrace.sysout("jstrace.tree.frameIterator", member);
 			}
-			var frames = [];
-			var node = member.value;
-			while (node) {
-				if (node instanceof ContextNode)
-					break;
-				frames.push(node)
-				node = node.parent;
+			var result = [];
+			var callers = member.value.callers;
+			for(var key in callers) {
+				result.push(callers[key]);
 			}
-			return frames;
+			return result;
 		},
 
 		onClick: function(event) {

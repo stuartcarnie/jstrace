@@ -35,3 +35,8 @@
     font-family: monospace;
     overflow-x: auto;
 }
+
+.stackLabel {
+	font-weight: bold;
+	padding-top: 10px;
+}
