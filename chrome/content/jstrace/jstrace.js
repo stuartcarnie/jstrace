@@ -8,6 +8,8 @@ FBL.ns(function() { with (FBL) {
 	
 	var panelName = "jstracePanel";
 	
+	// Primary handler to trace all function calls when active (calling traceHandlers.start)
+	// Delegates out to a hook handler, so we could have many
 	var traceHandlers = {
 		hooks: [],
 		
@@ -82,6 +84,7 @@ FBL.ns(function() { with (FBL) {
 		}
 	}
 	
+	// simple clone function, that first checks if an object has a clone method, and calls that.
 	function cloneObject(obj) {
 		if (!obj) return obj;
 		if (obj.clone) return obj.clone();
@@ -105,31 +108,7 @@ FBL.ns(function() { with (FBL) {
 		return newInstance;
 	}
 
-	function framesToString(frame)
-	{
-	    var str = "";
-	    while (frame)
-	    {
-	        str += frameToString(frame)+"\n";
-	        frame = frame.callingFrame;
-	    }
-	    return str;
-	}
-	
-	function frameToString(frame)
-	{
-	    if (!frame)
-	        return "< no frame >";
-
-	    if (!frame.script)
-	    {
-	        ERROR("frameToString bad frame "+typeof(frame), frame);
-	        return "<bad frame>";
-	    }
-
-	    return frame.script.tag+" in "+frame.script.fileName+"@"+frame.line+"(pc="+frame.pc+")";
-	}
-	
+	// generates a unique hash for the specified stack trace, walking up all frames
 	function framesToHash(frame) {
 		var hash = 7919;	// prime
 		while (frame) {
@@ -146,6 +125,7 @@ FBL.ns(function() { with (FBL) {
 		return hash;
 	}
 	
+	// generates a unique hash for the specified frame only
 	function frameHash(frame) {
 		var hash = 7919;	// prime
 		hash ^= frame.script.tag;
@@ -286,6 +266,21 @@ FBL.ns(function() { with (FBL) {
 				FBTrace.sysout("jstrace.TraceListener.stop; processing profileData", this);			
 		},
 		
+		// the output of the generateTraceData function generates a tree structure as follows
+		//		Root
+		//			Execution Context
+		//				FunctionCallNode
+		//					FunctionCallNode
+		//					FunctionCallNode
+		//			Execution Context
+		//				FunctionCallNode
+		//					FunctionCallNode
+		//
+		// FunctionCallNode: 
+		//	represents a function that was called during tracing / execution
+		//	•	Includes specific information about the function, include file name, line number and 'guessed' function name
+		//	•	callers hashtable, which represents all the places this function was called from parent
+		//
 		generateTraceData: function(context) {
 			if (FBTrace.DBG_JSTRACE)
 				FBTrace.sysout("jstrace.TraceListener.generateTraceData");
@@ -300,17 +295,20 @@ FBL.ns(function() { with (FBL) {
 					}
 				};
 				for(var keyExec in this.profileData) {
+					// enumerate each execution context
 					var exec = this.profileData[keyExec];
 					
 					var contextNode = new ContextNode(root, exec.executionContext);
 					root.children[keyExec] = contextNode;
 					for(var keyCall in exec.calls) {
+						// enumarate all the calls within the current execution context
 						var call = exec.calls[keyCall];
 						var frames = call.frame.frames;
 						var children = contextNode.children;
 						var parent = contextNode;
 						var lastFrame = frames.length - 1;
 						for (var i = lastFrame; i >= 0; i--) {
+							// traverse stack frame from top to bottom
 							var frame = frames[i];
 							var child = children[frame.script.tag];
 							if (!child) {
@@ -318,6 +316,8 @@ FBL.ns(function() { with (FBL) {
 								children[frame.script.tag] = child;
 							}
 							if (i < lastFrame) {
+								// if this stack frame represents a new call site for child function in the calling function,
+								// add this information to the child.callers hashtable
 								var callingFrame = frames[i+1];
 								var hash = frameHash(callingFrame);
 								var caller = child.callers[hash];
