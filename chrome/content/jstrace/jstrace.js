@@ -142,13 +142,12 @@ FBL.ns(function() { with (FBL) {
 	
 	function ProfileContext(executionContext) {
 		this.executionContext = executionContext;
-		this.functionCalls = {};
 		this.calls = {};
 	}
 	
 	function FunctionCallNode(aParent, aFileName, aFunctionName, aBaseLineNumber) {
 		this.parent = aParent;
-		this.fileName = aFileName
+		this.fileName = aFileName;
 		this.functionName = aFunctionName;
 		this.baseLineNumber = aBaseLineNumber;
 		this.children = {};
@@ -301,7 +300,7 @@ FBL.ns(function() { with (FBL) {
 					var contextNode = new ContextNode(root, exec.executionContext);
 					root.children[keyExec] = contextNode;
 					for(var keyCall in exec.calls) {
-						// enumarate all the calls within the current execution context
+						// enumerate all the calls within the current execution context
 						var call = exec.calls[keyCall];
 						var frames = call.frame.frames;
 						var children = contextNode.children;
@@ -425,12 +424,10 @@ FBL.ns(function() { with (FBL) {
 			if (FBTrace.DBG_JSTRACE) {
 				FBTrace.sysout("jstrace.jstraceModule.logTraceReport:table", rootTemplateElement);
 			}
-		},
-		
-		
+		}
 	});
 	
-	Firebug.registerActivableModule(Firebug.jstraceModule)
+	Firebug.registerActivableModule(Firebug.jstraceModule);
 	
 	// model
 	
@@ -482,8 +479,7 @@ FBL.ns(function() { with (FBL) {
 		
 		getTargetNode: function() {
 			return this.panelNode.ownerDocument.getElementById("jstraceMessageTable");
-		},
-		
+		}
 	});
 	
 	Firebug.registerPanel(jstracePanel);
