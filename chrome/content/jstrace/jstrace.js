@@ -506,7 +506,7 @@ FBL.ns(function() { with (FBL) {
 					TABLE({class: "callTable"},
 						TBODY(
 							TR(
-								TD({ class: "stackLabel"}, "Function:")
+								TD({ class: "stackLabel"}, "Function definition:")
 							),
 							TR(
 								TD(
@@ -551,9 +551,6 @@ FBL.ns(function() { with (FBL) {
 		},
 		
 		callersIterator: function(member) {
-			if (FBTrace.DBG_JSTRACE) {
-				FBTrace.sysout("jstrace.tree.frameIterator", member);
-			}
 			var result = [];
 			var callers = member.value.callers;
 			for(var key in callers) {
@@ -586,9 +583,6 @@ FBL.ns(function() { with (FBL) {
 				var firstTD = row.firstChild;
 				var bodyRow = this.rowBody.append({member: row.repObject}, firstTD, this);
 				row.bodyRow = bodyRow;
-			}
-			if (FBTrace.DBG_JSTRACE) {
-				FBTrace.sysout("jstrace.tree.toggleRowInfo", row);
 			}
 		},
 
