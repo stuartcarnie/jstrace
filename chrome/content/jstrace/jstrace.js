@@ -94,10 +94,10 @@ FBL.ns(function() { with (FBL) {
 	}
 	
 	function framesToHash(frame) {
-		var hash = 7919;	// random prime number
+		var hash = 7919;	// prime
 		while (frame) {
 			if (!frame.script) {
-		        ERROR("frameToString bad frame "+typeof(frame), frame);
+		        ERROR("framesToHash bad frame "+typeof(frame), frame);
 		        return "<bad frame>";
 		    }
 		
@@ -116,30 +116,16 @@ FBL.ns(function() { with (FBL) {
 		this.callCount = 0;
 	}
 	
-	function ProfileFunction(aFrame) {
-		this.functionName = aFrame.functionName;
-		this.fileName = aFrame.script.fileName;
-		this.lineNumber = aFrame.script.baseLineNumber;
-		this.script = aFrame.script;
-		this.callCount = 0;
-		this.calls = {};
-	}
-	
 	function ProfileContext(executionContext) {
 		this.executionContext = executionContext;
 		this.functionCalls = {};
 		this.calls = {};
 	}
 	
-	function TraceListener(context) {
-		this.context = context;
-		this.callCount = 0;
-		this.profileData = {};
-	}
-	
-	function CallNode(aFrame, aContext) {
+	function CallNode(aParent, aFrame, aContext) {
 		if (aContext)
 			this.functionName = getFunctionName(aFrame.script, aContext);
+		this.parent = aParent;
 		this.fileName = aFrame.script.fileName;
 		this.children = {};
 		this.frame = aFrame;
@@ -150,25 +136,10 @@ FBL.ns(function() { with (FBL) {
 	}
 	
 	CallNode.prototype.clone = function() {
-		var res = new CallNode(this.frame);
+		var res = new CallNode(this.parent, this.frame);
 		res.functionName = this.functionName;
 		res.children = cloneObject(this.children);
 		return res;
-	}
-	
-	function ContextNode(aExecutionContext) {
-		this.executionContext = aExecutionContext;
-		this.children = {};
-	}
-	
-	ContextNode.prototype.toString = function() {
-		return "Context " + this.executionContext.tag;
-	};
-	
-	ContextNode.prototype.clone = function() {
-		var obj = new ContextNode(this.executionContext);
-		obj.children = cloneObject(this.children);
-		return obj;
 	}
 	
 	// Works with CallNode, performs depth-first search
@@ -187,6 +158,28 @@ FBL.ns(function() { with (FBL) {
 			}
 		}
 		return match(node) || isMatch;
+	}
+		
+	function ContextNode(aParent, aExecutionContext) {
+		this.parent = aParent;
+		this.executionContext = aExecutionContext;
+		this.children = {};
+	}
+	
+	ContextNode.prototype.toString = function() {
+		return "Context " + this.executionContext.tag;
+	};
+	
+	ContextNode.prototype.clone = function() {
+		var obj = new ContextNode(this.parent, this.executionContext);
+		obj.children = cloneObject(this.children);
+		return obj;
+	}
+		
+	function TraceListener(context) {
+		this.context = context;
+		this.callCount = 0;
+		this.profileData = {};
 	}
 	
 	TraceListener.prototype = {
@@ -233,6 +226,7 @@ FBL.ns(function() { with (FBL) {
 			try {
 				var root = {
 					"name": "Root Node",
+					parent: null,
 					children: {},
 					toString: function() {
 						return this.name;
@@ -241,21 +235,22 @@ FBL.ns(function() { with (FBL) {
 				for(var keyExec in this.profileData) {
 					var exec = this.profileData[keyExec];
 					
-					var contextNode = new ContextNode(exec.executionContext);
+					var contextNode = new ContextNode(root, exec.executionContext);
 					root.children[keyExec] = contextNode;
-				
 					for(var keyCall in exec.calls) {
 						var call = exec.calls[keyCall];
 						var frames = call.frame.frames;
 						var children = contextNode.children;
+						var parent = contextNode;
 						for (var i = frames.length - 1; i >= 0; i--) {
 							var frame = frames[i];
 							var child = children[frame.script.tag];
 							if (!child) {
-								child = new CallNode(frame, context);
+								child = new CallNode(parent, frame, context);
 								children[frame.script.tag] = child;
 							}
 							children = child.children;
+							parent = child;
 						};
 					}
 				}
@@ -337,51 +332,12 @@ FBL.ns(function() { with (FBL) {
 			return filtered;
 		},
 		
-		matchFunctionInfo: function(fi) {
-			var searchText = searchBox.value;
-			if (searchText == undefined || searchText == '')
-				return true;
-			
-			var calls = fi.calls;
-			for(var key in calls) {
-				var val = calls[key];
-				var frames = val.frame.frames;
-				for(var i = 0; i <frames.length; i++) {
-					if (frames[i].href.indexOf(searchText) >= 0) {
-						return true;
-					}
-				}
-			}
-			return false;
-		},
-		
 		logTraceReport: function logTraceReport(context, traceData) {
 			try {
 				var panel = context.getPanel(panelName);
 				var parentNode = panel.panelNode;
 				var rootTemplateElement = tree.tag.replace({object: traceData}, parentNode, tree);
 				
-				
-				// old
-				/*
-				
-				var rootTemplateElement = Firebug.jstraceModule.TraceTable.tableTag.replace(
-					{}, parentNode, Firebug.jstraceModule.TraceTable);
-				
-				var targetNode = rootTemplateElement.ownerDocument.getElementById("jstraceMessageTable").firstChild;
-				
-				for(var key in traceListener.profileData) {
-					var profContext = traceListener.profileData[key];
-					for(var callKey in profContext.functionCalls) {
-						var functionInfo = profContext.functionCalls[callKey];
-						if (!this.matchFunctionInfo(functionInfo)) {
-							continue;
-						}
-						var message = new Firebug.jstraceModule.FunctionCallLog(context, functionInfo);
-						Firebug.jstraceModule.TraceTable.dump(message, targetNode);
-					}
-				}
-				*/
 			} catch (err) {
 				if (FBTrace.DBG_JSTRACE || FBTrace.DBG_ERROR)
 				    FBTrace.sysout("error jstrace.jstraceModule.logTraceReport; ", err);
@@ -455,7 +411,7 @@ FBL.ns(function() { with (FBL) {
 	
 	var tree = domplate({
 		tag:
-			TABLE({onclick: "$onClick"},
+			TABLE({ style: "width: 100%", onclick: "$onClick"},
 				TBODY(
 					FOR("member", "$object|memberIterator",
 						TAG("$row", {member: "$member"})
@@ -475,6 +431,25 @@ FBL.ns(function() { with (FBL) {
 					DIV("$member.label")
 				)
 			),
+					
+		rowBody:
+			DIV({class: "treeRowInfoGroup", _repObject: "$member"}, 
+				DIV({class: "treeRowInfoBody"}, 
+					TABLE({class: "callTable"},
+						TBODY(
+							FOR("node", "$member|frameNodeIterator",
+								TR(
+									TD(
+										A({"class": "stackFrameLink", onclick: "$onClickCallInfo", lineNumber: "$node.frame.line"},
+											"$node.fileName"
+										)
+									)
+								)
+							)
+						)
+					)
+				)
+			),
 
 		loop:
 			FOR("member", "$members",
@@ -482,19 +457,72 @@ FBL.ns(function() { with (FBL) {
 			),
 
 		memberIterator: function(object) {
-			if (FBTrace.DBG_JSTRACE)
-				FBTrace.sysout("tree.memberIterator", object);
 			return this.getMembers(object);
+		},
+		
+		onClickCallInfo: function(event) {
+			var winType = "FBTraceConsole-SourceView";
+			var lineNumber = event.target.getAttribute("lineNumber");
+
+			openDialog("chrome://global/content/viewSource.xul",
+				winType, "all,dialog=no",
+				event.target.innerHTML, null, null, lineNumber, false);
+		},
+		
+		frameNodeIterator: function(member) {
+			if (FBTrace.DBG_JSTRACE) {
+				FBTrace.sysout("jstrace.tree.frameIterator", member);
+			}
+			var frames = [];
+			var node = member.value;
+			while (node) {
+				if (node instanceof ContextNode)
+					break;
+				frames.push(node)
+				node = node.parent;
+			}
+			return frames;
 		},
 
 		onClick: function(event) {
-			if (!isLeftClick(event))
-				return;
-
 			var row = getAncestorByClass(event.target, "treeRow");
-			var label = getAncestorByClass(event.target, "treeLabel");
-			if (label && hasClass(row, "hasChildren"))
-				this.toggleRow(row);
+			if (event.button == 0) {
+				if (isAltClick(event)) {
+				
+					/*
+					// open file
+					var winType = "FBTraceConsole-SourceView";
+					var rowObj = row.repObject;
+					var lineNumber = rowObj.value.frame.line;
+
+					openDialog("chrome://global/content/viewSource.xul",
+						winType, "all,dialog=no",
+						rowObj.value.fileName, null, null, lineNumber, false);
+						*/
+					this.toggleRowInfo(row);
+				} else if (isLeftClick(event)) {
+					var label = getAncestorByClass(event.target, "treeLabel");
+					if (label && hasClass(row, "hasChildren"))
+						this.toggleRow(row);
+				}
+			}
+		},
+		
+		toggleRowInfo: function(row) {			
+			if (hasClass(row, "infoOpened")) {
+				removeClass(row, "infoOpened");
+				
+				row.bodyRow.parentNode.removeChild(row.bodyRow);
+				delete row.bodyRow;
+			} else {
+				setClass(row, "infoOpened");
+				var firstTD = row.firstChild;
+				var bodyRow = this.rowBody.append({member: row.repObject}, firstTD, this);
+				row.bodyRow = bodyRow;
+			}
+			if (FBTrace.DBG_JSTRACE) {
+				FBTrace.sysout("jstrace.tree.toggleRowInfo", row);
+			}
 		},
 
 		toggleRow: function(row) {

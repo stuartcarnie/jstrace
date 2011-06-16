@@ -19,3 +19,19 @@
 	cursor: pointer;
 	text-decoration: underline;
 }
+
+.treeRowInfoGroup {
+    border-top: 1px solid #EEEEEE;
+    background: url(chrome://firebug/skin/group.png) repeat-x #FFFFFF;
+}
+
+.treeRowInfoBody {
+/*    display: none; */
+    margin: 0;
+    border: 1px solid #D7D7D7;
+    border-right: none;
+    padding: 8px;
+    background-color: #FFFFFF;
+    font-family: monospace;
+    overflow-x: auto;
+}
