@@ -9,7 +9,7 @@
   <RDF:Description RDF:about="urn:mozilla:install-manifest"
                    em:id="jstrace.stuart.carnie@gmail.com"
                    em:name="JS-Trace for Firebug"
-                   em:version="0.1"
+                   em:version="0.2"
                    em:creator="Stuart Carnie"
                    em:description="This Firebug extension is used to trace Javascript function calls">
     <em:targetApplication RDF:resource="rdf:#$.gEWt2"/>
